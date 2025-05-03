@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WebRTC Demo</title>
+</head>
+<body>
+  <h2>WebRTC Video Chat</h2>
+  <video id="localVideo" autoplay muted playsinline></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const room = 'test-room';
+    const socket = io();
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    let localStream, peer;
+
+    socket.emit('join', room);
+
+    socket.on('ready', startCall);
+
+    socket.on('offer', async (offer) => {
+      await createPeer();
+      await peer.setRemoteDescription(offer);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      socket.emit('answer', answer, room);
+    });
+
+    socket.on('answer', async (answer) => {
+      await peer.setRemoteDescription(answer);
+    });
+
+    socket.on('ice-candidate', async (candidate) => {
+      try {
+        await peer.addIceCandidate(candidate);
+      } catch (e) {
+        console.error('Error adding received ice candidate', e);
+      }
+    });
+
+    async function startCall() {
+      await createPeer();
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socket.emit('offer', offer, room);
+    }
+
+    async function createPeer() {
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localVideo.srcObject = localStream;
+
+      peer = new RTCPeerConnection();
+
+      localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
+
+      peer.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+      };
+
+      peer.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('ice-candidate', event.candidate, room);
+        }
+      };
+    }
+  </script>
+</body>
+</html>
